@@ -95,6 +95,12 @@
     font-family:var(--sans);letter-spacing:.01em;
   }
   button.primary:disabled{background:#1f2733;color:var(--dim);cursor:not-allowed;}
+  button.danger{
+    width:100%;background:transparent;color:var(--danger);border:1px solid var(--danger);
+    border-radius:8px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;margin-top:10px;
+    font-family:var(--sans);
+  }
+  button.danger:hover{background:rgba(224,83,122,0.1);}
   button.ghost{
     width:100%;background:transparent;color:var(--dim);border:1px solid var(--line);
     border-radius:8px;padding:11px;font-size:13px;cursor:pointer;margin-top:8px;
@@ -165,10 +171,12 @@
       <div class="code-hint">클릭하면 복사됩니다 · 이 코드를 상대에게 전달하세요</div>
       <div class="code-display" id="hostPin" style="font-size:22px;">----</div>
       <div class="code-hint">PIN 번호 · 코드와 함께 알려줘야 접속이 허용됩니다</div>
+      <button class="danger" id="endSessionBtn">세션 완전히 종료</button>
     </div>
     <div class="status" id="hostStatus"><span class="led"></span><span>대기 중</span></div>
+    <div class="status" id="helperStatus"><span class="led"></span><span>로컬 도우미 미확인</span></div>
     <div class="log" id="hostLog"></div>
-    <div class="note"><b>참고</b> — 방 코드와 PIN을 모두 아는 사람만 접속이 허용됩니다. PIN이 틀리면 즉시 연결이 차단됩니다. 화면 공유를 시작하면 자동으로 <code>localhost:8765</code>의 로컬 도우미(host-helper)에 연결을 시도합니다. 도우미가 실행 중이면 인증된 뷰어의 입력이 실제 마우스·키보드 동작으로 반영됩니다.</div>
+    <div class="note"><b>참고</b> — 방 코드와 PIN을 모두 아는 사람만 접속이 허용됩니다. PIN이 틀리면 즉시 연결이 차단됩니다. 화면 공유를 시작하면 자동으로 <code>localhost:8765</code>의 로컬 도우미(host-helper)에 연결을 시도합니다. <b>화면 공유를 브라우저 자체 버튼으로 중지하거나 "세션 완전히 종료"를 누르면 방 코드·PIN·데이터 채널이 즉시 전부 무효화됩니다.</b> 그냥 브라우저의 "공유 중지"만 누르고 탭은 열어두는 경우에도 이제 자동으로 전체 연결이 끊깁니다.</div>
   </div>
 
   <!-- 뷰어 패널 -->
@@ -197,17 +205,21 @@ function genPin(){
   return String(Math.floor(1000 + Math.random() * 9000)); // 4자리
 }
 
-function connectHelper(logTarget){
+function connectHelper(){
   try{
     helperSocket = new WebSocket('ws://127.0.0.1:8765');
     helperSocket.onopen = () => {
-      log(logTarget, '✅ 로컬 제어 도우미 연결됨 — 실제 입력 반영이 활성화되었습니다.');
+      setStatus($('helperStatus'),'ok','로컬 도우미 연결됨 · 실제 입력 반영 활성화');
+      log($('hostLog'), '✅ 로컬 제어 도우미 연결됨.');
     };
     helperSocket.onerror = () => {
-      log(logTarget, '⚠️ 로컬 도우미 없음 — 입력 신호는 로그로만 표시됩니다. (host-helper 실행 필요)');
+      setStatus($('helperStatus'),'bad','로컬 도우미 없음 · 로그만 기록됨');
       helperSocket = null;
     };
-    helperSocket.onclose = () => { helperSocket = null; };
+    helperSocket.onclose = () => {
+      setStatus($('helperStatus'),'bad','로컬 도우미 연결 끊김');
+      helperSocket = null;
+    };
   }catch(e){
     helperSocket = null;
   }
@@ -250,7 +262,7 @@ $('startHost').onclick = async () => {
     setStatus($('hostStatus'),'bad','화면 공유 권한이 거부됨');
     return;
   }
-  connectHelper($('hostLog'));
+  connectHelper();
 
   const roomCode = genCode();
   currentPin = genPin();
@@ -279,7 +291,6 @@ $('startHost').onclick = async () => {
           setStatus($('hostStatus'),'ok','인증 성공 · 뷰어 연결됨');
           log($('hostLog'), '✅ PIN 인증 성공. 화면과 입력 채널이 열렸습니다.');
           conn.send({type:'auth_ok'});
-          // 인증 전에 걸려온 영상 통화가 있었다면 지금 응답
           if(pendingCalls[conn.peer]){
             pendingCalls[conn.peer].answer(mediaStream);
             delete pendingCalls[conn.peer];
@@ -291,7 +302,6 @@ $('startHost').onclick = async () => {
         }
         return;
       }
-      // 인증된 이후의 입력 신호만 처리·전달
       log($('hostLog'), `<span>입력수신</span> ${JSON.stringify(data)}`);
       if(helperSocket && helperSocket.readyState === 1){
         helperSocket.send(JSON.stringify(data));
@@ -303,12 +313,11 @@ $('startHost').onclick = async () => {
     });
   });
 
-  // 뷰어가 영상 통화를 걸어올 때 — 이미 인증된 상대라면 즉시 응답, 아니면 인증될 때까지 보류
   peer.on('call', call => {
     if(authorizedPeers.has(call.peer)){
       call.answer(mediaStream);
     }else{
-      pendingCalls[call.peer] = call; // PIN 인증 완료 시 응답됨
+      pendingCalls[call.peer] = call;
     }
   });
 
@@ -316,10 +325,29 @@ $('startHost').onclick = async () => {
     setStatus($('hostStatus'),'bad','오류: ' + err.type);
   });
 
-  mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
-    setStatus($('hostStatus'),'warn','화면 공유가 종료되었습니다');
-  });
+  // 화면 공유가 어떤 경로로든 종료되면(브라우저 자체 "공유 중지" 버튼 포함) 세션 전체를 자동으로 완전 종료
+  mediaStream.getVideoTracks()[0].addEventListener('ended', endSessionCompletely);
 };
+
+$('endSessionBtn').onclick = endSessionCompletely;
+
+function endSessionCompletely(){
+  log($('hostLog'), '🔒 세션을 완전히 종료합니다 — 방 코드·PIN·모든 연결이 무효화됩니다.');
+  setStatus($('hostStatus'),'bad','세션 완전히 종료됨');
+  setStatus($('helperStatus'),'bad','연결 해제됨');
+
+  if(mediaStream){
+    mediaStream.getTracks().forEach(t => t.stop());
+  }
+  authorizedPeers.clear();
+  Object.keys(pendingCalls).forEach(k => delete pendingCalls[k]);
+  if(activeConn){ try{ activeConn.close(); }catch(e){} }
+  if(peer){ try{ peer.destroy(); }catch(e){} } // 방 코드 자체를 브로커에서 제거 → 재접속 완전 불가
+  if(helperSocket){ try{ helperSocket.close(); }catch(e){} }
+
+  $('startHost').disabled = true;
+  $('startHost').textContent = '세션 종료됨 · 새로 시작하려면 아래 버튼';
+}
 
 $('hostCode').onclick = () => {
   navigator.clipboard.writeText($('hostCode').textContent);
@@ -342,7 +370,6 @@ $('joinBtn').onclick = () => {
 };
 
 function setupViewerCall(code, pin){
-  // 데이터 채널: PIN 인증 + 마우스/키보드 신호 전송용
   const conn = peer.connect('bridge-' + code);
   activeConn = conn;
   conn.on('open', () => {
@@ -356,9 +383,9 @@ function setupViewerCall(code, pin){
       setStatus($('viewerStatus'),'bad','PIN이 틀렸습니다');
     }
   });
+  conn.on('close', () => setStatus($('viewerStatus'),'bad','연결이 종료되었습니다 (호스트가 세션을 끝냈을 수 있습니다)'));
   conn.on('error', () => setStatus($('viewerStatus'),'bad','신호 채널 오류'));
 
-  // 영상 채널: 호스트 화면 수신용 (내가 보낼 스트림은 없으므로 빈 스트림으로 호출)
   const call = peer.call('bridge-' + code, new MediaStream());
   call.on('stream', remoteStream => {
     const v = $('remoteVideo');
@@ -374,7 +401,7 @@ function attachControlCapture(video, conn){
   let last = 0;
   video.addEventListener('mousemove', e => {
     const now = Date.now();
-    if(now - last < 40) return; // throttle ~25fps
+    if(now - last < 40) return;
     last = now;
     const rect = video.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;

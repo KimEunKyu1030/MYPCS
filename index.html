@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>브릿지 — PC 간 원격 화면 연결</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<style>
+  :root{
+    --bg: #0a0d12;
+    --panel: #10151c;
+    --line: #1f2733;
+    --text: #d7e0ea;
+    --dim: #6b7686;
+    --accent: #39e6a4;
+    --accent-dim: #1c7a58;
+    --warn: #e6b339;
+    --danger: #e0537a;
+    --mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    --sans: -apple-system, 'Segoe UI', 'Pretendard', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:
+      radial-gradient(circle at 20% 0%, rgba(57,230,164,0.06), transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:32px 16px 60px;
+  }
+  .wrap{width:100%;max-width:640px;}
+  header{margin-bottom:28px;}
+  .brand{
+    display:flex;align-items:baseline;gap:10px;
+  }
+  .brand .dot{
+    width:9px;height:9px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px var(--accent);
+  }
+  h1{
+    font-size:22px;font-weight:600;margin:0;letter-spacing:-0.01em;
+  }
+  .tag{color:var(--dim);font-size:13px;margin-top:6px;font-family:var(--mono);}
+
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:22px;
+    margin-bottom:16px;
+  }
+  .card h2{
+    font-size:14px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--dim);margin:0 0 16px;font-weight:600;
+  }
+
+  .roles{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .role-btn{
+    background:#0d1218;border:1px solid var(--line);border-radius:10px;
+    padding:18px 14px;color:var(--text);cursor:pointer;text-align:left;
+    transition:border-color .15s, transform .1s;
+    font-family:var(--sans);
+  }
+  .role-btn:hover{border-color:var(--accent-dim);}
+  .role-btn.active{border-color:var(--accent);background:#0d1a16;}
+  .role-btn .k{font-family:var(--mono);color:var(--accent);font-size:11px;letter-spacing:.05em;}
+  .role-btn .t{font-size:15px;font-weight:600;margin-top:6px;}
+  .role-btn .d{font-size:12px;color:var(--dim);margin-top:4px;line-height:1.4;}
+
+  .hidden{display:none !important;}
+
+  .code-display{
+    font-family:var(--mono);font-size:28px;letter-spacing:.08em;
+    color:var(--accent);background:#0d1218;border:1px dashed var(--accent-dim);
+    border-radius:10px;padding:16px;text-align:center;margin:14px 0;
+    user-select:all;cursor:pointer;
+  }
+  .code-hint{font-size:12px;color:var(--dim);text-align:center;margin-top:-6px;margin-bottom:10px;}
+
+  input[type=text]{
+    width:100%;background:#0d1218;border:1px solid var(--line);border-radius:8px;
+    color:var(--text);padding:12px 14px;font-family:var(--mono);font-size:16px;
+    letter-spacing:.06em;text-transform:uppercase;
+  }
+  input[type=text]:focus{outline:none;border-color:var(--accent);}
+
+  button.primary{
+    width:100%;background:var(--accent);color:#04231a;border:none;border-radius:8px;
+    padding:13px;font-size:14px;font-weight:700;cursor:pointer;margin-top:12px;
+    font-family:var(--sans);letter-spacing:.01em;
+  }
+  button.primary:disabled{background:#1f2733;color:var(--dim);cursor:not-allowed;}
+  button.ghost{
+    width:100%;background:transparent;color:var(--dim);border:1px solid var(--line);
+    border-radius:8px;padding:11px;font-size:13px;cursor:pointer;margin-top:8px;
+  }
+  button.ghost:hover{color:var(--text);border-color:var(--dim);}
+
+  .status{
+    display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+    color:var(--dim);margin-top:14px;
+  }
+  .status .led{width:7px;height:7px;border-radius:50%;background:var(--dim);}
+  .status.ok .led{background:var(--accent);box-shadow:0 0 8px var(--accent);}
+  .status.warn .led{background:var(--warn);}
+  .status.bad .led{background:var(--danger);}
+
+  video{
+    width:100%;background:#000;border-radius:10px;display:block;
+    border:1px solid var(--line);cursor:crosshair;
+  }
+
+  .note{
+    font-size:12px;color:var(--dim);line-height:1.6;border-top:1px solid var(--line);
+    padding-top:12px;margin-top:14px;
+  }
+  .note b{color:var(--warn);}
+
+  .log{
+    font-family:var(--mono);font-size:11px;color:var(--dim);background:#0d1218;
+    border:1px solid var(--line);border-radius:8px;padding:10px;height:110px;
+    overflow-y:auto;margin-top:10px;line-height:1.6;
+  }
+  .log div span{color:var(--accent);}
+
+  footer{color:var(--dim);font-size:11px;text-align:center;margin-top:20px;font-family:var(--mono);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="dot"></span><h1>브릿지</h1></div>
+    <div class="tag">브라우저만으로 두 PC를 잇는 화면 공유 · GitHub Pages로 배포 가능</div>
+  </header>
+
+  <!-- 역할 선택 -->
+  <div class="card" id="roleCard">
+    <h2>01 · 역할 선택</h2>
+    <div class="roles">
+      <button class="role-btn" id="btnHost">
+        <div class="k">HOST</div>
+        <div class="t">이 PC 화면 공유하기</div>
+        <div class="d">내 화면을 보여주고, 상대의 입력 신호를 받습니다.</div>
+      </button>
+      <button class="role-btn" id="btnViewer">
+        <div class="k">VIEWER</div>
+        <div class="t">다른 PC에 접속하기</div>
+        <div class="d">방 코드를 입력해 상대 화면을 보고 조작 신호를 보냅니다.</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- 호스트 패널 -->
+  <div class="card hidden" id="hostCard">
+    <h2>02 · 호스트 모드</h2>
+    <p style="font-size:13px;color:var(--dim);margin-top:0;">아래 버튼을 눌러 화면 공유를 시작하면 방 코드가 발급됩니다.</p>
+    <button class="primary" id="startHost">화면 공유 시작</button>
+    <div id="hostCodeWrap" class="hidden">
+      <div class="code-display" id="hostCode">------</div>
+      <div class="code-hint">클릭하면 복사됩니다 · 이 코드를 상대에게 전달하세요</div>
+    </div>
+    <div class="status" id="hostStatus"><span class="led"></span><span>대기 중</span></div>
+    <div class="log" id="hostLog"></div>
+    <div class="note"><b>참고</b> — 화면 공유를 시작하면 자동으로 <code>localhost:8765</code>의 로컬 도우미(host-helper)에 연결을 시도합니다. 도우미가 실행 중이면 뷰어의 입력이 실제 마우스·키보드 동작으로 반영되고, 없으면 로그로만 표시됩니다.</div>
+  </div>
+
+  <!-- 뷰어 패널 -->
+  <div class="card hidden" id="viewerCard">
+    <h2>02 · 뷰어 모드</h2>
+    <input type="text" id="roomInput" placeholder="방 코드 입력" maxlength="6">
+    <button class="primary" id="joinBtn">접속하기</button>
+    <div class="status" id="viewerStatus"><span class="led"></span><span>대기 중</span></div>
+    <video id="remoteVideo" autoplay playsinline class="hidden"></video>
+    <div class="note" id="viewerNote"><b>참고</b> — 화면 위에서 마우스를 움직이고 클릭·키 입력을 하면 상대 PC로 신호가 전송됩니다. 실제 제어 반영 여부는 호스트 측 도우미 프로그램 유무에 따라 달라집니다.</div>
+  </div>
+
+  <button class="ghost hidden" id="resetBtn">처음으로 돌아가기</button>
+  <footer>PeerJS 공개 브로커로 시그널링 · 영상은 P2P 직접 전송</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let peer, activeConn, mediaStream, helperSocket = null;
+
+function connectHelper(logTarget){
+  try{
+    helperSocket = new WebSocket('ws://127.0.0.1:8765');
+    helperSocket.onopen = () => {
+      log(logTarget, '✅ 로컬 제어 도우미 연결됨 — 실제 입력 반영이 활성화되었습니다.');
+    };
+    helperSocket.onerror = () => {
+      log(logTarget, '⚠️ 로컬 도우미 없음 — 입력 신호는 로그로만 표시됩니다. (host-helper 실행 필요)');
+      helperSocket = null;
+    };
+    helperSocket.onclose = () => { helperSocket = null; };
+  }catch(e){
+    helperSocket = null;
+  }
+}
+
+function setStatus(el, level, text){
+  el.className = 'status ' + level;
+  el.querySelector('span:last-child').textContent = text;
+}
+function log(container, msg){
+  const d = document.createElement('div');
+  const t = new Date().toLocaleTimeString('ko-KR', {hour12:false});
+  d.innerHTML = `<span>[${t}]</span> ${msg}`;
+  container.appendChild(d);
+  container.scrollTop = container.scrollHeight;
+}
+function genCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for(let i=0;i<5;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+$('btnHost').onclick = () => showPanel('host');
+$('btnViewer').onclick = () => showPanel('viewer');
+$('resetBtn').onclick = () => location.reload();
+
+function showPanel(mode){
+  $('roleCard').classList.add('hidden');
+  $('resetBtn').classList.remove('hidden');
+  if(mode === 'host') $('hostCard').classList.remove('hidden');
+  if(mode === 'viewer') $('viewerCard').classList.remove('hidden');
+}
+
+// ---------- HOST ----------
+$('startHost').onclick = async () => {
+  try{
+    mediaStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false});
+  }catch(e){
+    setStatus($('hostStatus'),'bad','화면 공유 권한이 거부됨');
+    return;
+  }
+  connectHelper($('hostLog'));
+
+  const roomCode = genCode();
+  peer = new Peer('bridge-' + roomCode, { debug: 0 });
+
+  peer.on('open', () => {
+    $('hostCode').textContent = roomCode;
+    $('hostCodeWrap').classList.remove('hidden');
+    $('startHost').disabled = true;
+    setStatus($('hostStatus'),'warn','방 코드 발급됨 · 상대 접속 대기 중');
+  });
+
+  // 뷰어가 데이터 채널로 연결해올 때
+  peer.on('connection', conn => {
+    activeConn = conn;
+    setStatus($('hostStatus'),'ok','뷰어 연결됨');
+    log($('hostLog'), '뷰어가 접속했습니다.');
+    conn.on('data', data => {
+      log($('hostLog'), `<span>입력수신</span> ${JSON.stringify(data)}`);
+      if(helperSocket && helperSocket.readyState === 1){
+        helperSocket.send(JSON.stringify(data));
+      }
+    });
+    conn.on('close', () => {
+      setStatus($('hostStatus'),'warn','뷰어 연결 종료됨');
+    });
+  });
+
+  // 뷰어가 영상 통화를 걸어올 때 내 화면 스트림으로 응답
+  peer.on('call', call => {
+    call.answer(mediaStream);
+  });
+
+  peer.on('error', err => {
+    setStatus($('hostStatus'),'bad','오류: ' + err.type);
+  });
+
+  mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
+    setStatus($('hostStatus'),'warn','화면 공유가 종료되었습니다');
+  });
+};
+
+$('hostCode').onclick = () => {
+  navigator.clipboard.writeText($('hostCode').textContent);
+  log($('hostLog'), '코드가 클립보드에 복사되었습니다.');
+};
+
+// ---------- VIEWER ----------
+$('joinBtn').onclick = () => {
+  const code = $('roomInput').value.trim().toUpperCase();
+  if(code.length < 4){
+    setStatus($('viewerStatus'),'bad','올바른 코드를 입력하세요');
+    return;
+  }
+  setStatus($('viewerStatus'),'warn','연결 시도 중...');
+  peer = new Peer(undefined, { debug: 0 });
+
+  peer.on('open', () => setupViewerCall(code));
+  peer.on('error', err => setStatus($('viewerStatus'),'bad','오류: ' + err.type));
+};
+
+function setupViewerCall(code){
+  // 데이터 채널: 마우스/키보드 신호 전송용
+  const conn = peer.connect('bridge-' + code);
+  activeConn = conn;
+  conn.on('open', () => setStatus($('viewerStatus'),'ok','신호 채널 연결됨'));
+  conn.on('error', () => setStatus($('viewerStatus'),'bad','신호 채널 오류'));
+
+  // 영상 채널: 호스트 화면 수신용 (내가 보낼 스트림은 없으므로 빈 스트림으로 호출)
+  const call = peer.call('bridge-' + code, new MediaStream());
+  call.on('stream', remoteStream => {
+    const v = $('remoteVideo');
+    v.srcObject = remoteStream;
+    v.classList.remove('hidden');
+    setStatus($('viewerStatus'),'ok','화면 수신 중');
+    attachControlCapture(v, conn);
+  });
+  call.on('error', () => setStatus($('viewerStatus'),'bad','영상 연결 오류'));
+}
+
+function attachControlCapture(video, conn){
+  let last = 0;
+  video.addEventListener('mousemove', e => {
+    const now = Date.now();
+    if(now - last < 40) return; // throttle ~25fps
+    last = now;
+    const rect = video.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    if(conn.open) conn.send({type:'move', x: x.toFixed(4), y: y.toFixed(4)});
+  });
+  video.addEventListener('mousedown', e => {
+    if(conn.open) conn.send({type:'click', button: e.button});
+  });
+  window.addEventListener('keydown', e => {
+    if(document.activeElement === video || document.activeElement === document.body){
+      if(conn.open) conn.send({type:'key', key: e.key});
+    }
+  });
+  video.tabIndex = 0;
+  video.focus();
+}
+</script>
+</body>
+</html>
